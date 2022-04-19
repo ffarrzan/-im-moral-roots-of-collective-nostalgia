@@ -1,0 +1,207 @@
+---
+title: "HW#8"
+author: "Farzan Karimi-Malekabadi"
+date: '2022-04-13'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-pkg, message=FALSE, warning=FALSE}
+library(ggplot2)  # for plots
+library(magrittr)  # for `%>%` operator
+library(here)
+library(readxl)  # for reading excel files
+library(modelsummary)  # for summarizing data
+library(rstan)
+rstan_options(auto_write = TRUE)  # save compiled STAN object
+options(mc.cores = 2)  # use two cores
+library(posterior)
+library(bayesplot)
+theme_set(theme_classic() +
+    theme(panel.grid.major.y = element_line(color = "grey92")))
+library(psych)  
+library(tidyverse)  
+library(readr)
+library(lmerTest)
+library(brms)
+```
+
+# Research Question
+
+> Can endorsement of six moral values predict the collective nostalgia proneness across 19 different cultures?
+
+# Variables
+
+- `profevaluation`: evaluation rating of the instructor: 1 (very unsatisfactory) to 5 (excellent)
+- `nonenglish`: 1 = non-native English speakers, 0 = native-English speakers
+
+## Import Data
+
+```{r beauty, message=FALSE, warning=FALSE}
+nos_source_d = read_csv("19 cultures.csv")
+
+nos_d = nos_source_d %>% select(
+                        CARE_tot,EQUALITY_tot,
+                        PROPORTIONALITY_tot,
+                        LOYALTY_tot,AUTHORITY_tot,
+                        PURITY_tot,Nostalgia,
+                        porient_1,age,religiosity_1,
+                        starts_with(c("CoNos")),country
+                        )%>%
+                         mutate(
+                        C_Nostalgia = ((CoNos1+CoNos2+CoNos3+CoNos4)/4),
+                        moral_Ind = (CARE_tot+EQUALITY_tot+PROPORTIONALITY_tot)/3,
+                        moral_Group = (LOYALTY_tot+AUTHORITY_tot+PURITY_tot)/3,
+                        mean_Care = mean(CARE_tot),
+                        mean_Equality = mean(EQUALITY_tot),
+                        mean_Propotionality = mean(PROPORTIONALITY_tot),
+                        mean_Loyalty = mean(LOYALTY_tot),
+                        mean_Authority = mean(AUTHORITY_tot),
+                        mean_Purity = mean(PURITY_tot),
+                        mean_Age = mean(age,na.rm=TRUE),
+                        mean_P_Nostalgia = mean(Nostalgia,na.rm=TRUE)
+                        ) %>%
+                        rename(
+                        Care = CARE_tot,
+                        Equality = EQUALITY_tot,
+                        Propotionality = PROPORTIONALITY_tot,
+                        Loyalty = LOYALTY_tot,
+                        Authority = AUTHORITY_tot,
+                        Purity = PURITY_tot,
+                        P_Nostalgia = Nostalgia,
+                        Religiosity = religiosity_1,
+                        Conservatism = porient_1,
+                        Age = age
+                        )
+```
+
+## Variable Summary
+
+```{r summ-var}
+#Sample size in each country
+ count(nos_d, country)
+
+#summarizing data in each country
+
+nos_d %>% 
+  group_by(country) %>% 
+  summarise(mean = mean(C_Nostalgia, na.rm = T), 
+            SD = sd(C_Nostalgia, na.rm = T),
+            Min = min(C_Nostalgia, na.rm = T),
+             Max = max(C_Nostalgia, na.rm = T),
+           )%>%  
+  mutate_if(is.numeric, ~round(., 2)) %>% 
+  print(n = 50)
+
+# look at distribution by country
+nos_d %>% 
+  ggplot(aes(C_Nostalgia)) + 
+  geom_density() +
+  facet_wrap(~country)
+```
+
+# Model
+
+Let $Y$ = profevaluation, $G$ = nonenglish
+
+Model:
+$$
+\begin{align}
+\text{Individual level:}  \\
+  \texttt{C_Nostalgia}_{ij} & \sim \mathcal{N}(\mu_{ij}, \sigma)  \\
+  \mu_{ij} & =\\ \beta_{0j} + \\
+  \beta_{1j} \texttt{Care}_{ij} +\\
+  \beta_{2j} \texttt{Equality}_{ij}+\\
+  \beta_{3j} \texttt{Propotionality}_{ij}+\\
+  \beta_{4j} \texttt{Loyalty}_{ij}+\\
+  \beta_{5j} \texttt{Authority}_{ij}+\\
+  \beta_{6j} \texttt{Purity}_{ij}+\\
+  \beta_{7j} \texttt{P_Nostalgia}_{ij}+\\
+  \beta_{8j} \texttt{Religiosity}_{ij}+\\
+  \beta_{9j} \texttt{Conservatism}_{ij}+\\
+  \beta_{10j} \texttt{Age}_{ij}\\
+  
+ \text{County level:}  \\ 
+\beta_{0j} & \sim \mathcal{N}(\mu^{[\beta_0]}, \tau^{[\beta_0]})  \\
+
+\end{align}
+$$
+
+Prior:
+
+
+## Running brms
+
+We used 4 chains, each with 4,000 iterations (first 2,000 as warm-ups). 
+
+```{r m1, eval=FALSE, include=FALSE}
+m1_fit <- brm(C_Nostalgia ~ 1 + Care+ Equality+ Propotionality
+                              + Loyalty+ Authority+ Purity+
+                              + Conservatism + P_Nostalgia + Age 
+                              + mean_Care + mean_Equality 
+                              + mean_Propotionality + mean_Loyalty
+                              + mean_Authority + mean_Purity
+                              + mean_P_Nostalgia + mean_Age
+                              + (1|country)
+                              ,
+                
+    family = gaussian(link = "identity"),
+    data = nos_d, 
+    chains = 4,
+    #adapt_delta = 0.99,
+    iter = 4000,
+    warmup = 2000,
+    save_pars = save_pars(all = TRUE)
+  )
+```
+
+```{r message=FALSE, warning=FALSE}
+m1_fit=readRDS(file = "my_data.rds")
+summary(m1_fit)
+```
+
+
+Get priors:
+
+```{r}
+get_prior(C_Nostalgia ~ 1 + Care+ Equality+ Propotionality
+                              + Loyalty+ Authority+ Purity+
+                              + Conservatism + P_Nostalgia + Age 
+                              + mean_Care + mean_Equality 
+                              + mean_Propotionality + mean_Loyalty
+                              + mean_Authority + mean_Purity
+                              + mean_P_Nostalgia + mean_Age
+                              + (1|country)
+                              ,
+                
+    family = gaussian(link = "identity"),
+    data = nos_d)
+```
+
+Convergence check of MCMC
+```{r}
+
+mcmc_plot(m1_fit, type = "trace")
+```
+# Results
+
+Table of coefficients
+
+```{r summ-m1}
+m1_fit %>%
+    # Convert to `draws` object to work with the `posterior` package
+    as_draws() %>%
+    # Get summary
+    summarize_draws() %>%
+    # Use `knitr::kable()` for tabulation
+    knitr::kable(digits = 2)
+```
+
+# Interpretations
+
+We found evidence that loyalty, authority and purity can significantly predict collective nostalgia across 19 countries after controlling for age, personal nostalgia and age. 
+
+
